@@ -1,74 +1,100 @@
 const express = require('express');
 const puppeteer = require('puppeteer');
+const crypto = require('crypto');
 
 const app = express();
 app.use(express.json());
 
-// A porta é atribuída automaticamente pelo Render ou assume a porta 3000
 const PORT = process.env.PORT || 3000;
 
-// Rota de teste para verificar se o servidor está vivo
-app.get('/', (req, res) => {
-    res.status(200).send('Servidor do Navegador Nuvem está online e operacional!');
-});
+// Token de segurança gerado no arranque
+const TOKEN_MESTRE = crypto.randomBytes(16).toString('hex');
+console.log(`[Segurança] TOKEN DE ACESSO GERADO: ${TOKEN_MESTRE}`);
 
-// Rota principal acionada pelo Termux para fazer o login
-app.post('/executar-login', async (req, res) => {
-    console.log("[Nuvem] Pedido de login recebido do Termux...");
-    
-    // Credenciais recebidas ou predefinidas
-    const dados = {
-        ra: req.body.ra || "113579340",
-        digito: req.body.digito || "2",
-        senha: req.body.senha || "Danidavi8@"
-    };
+// Instância global do navegador para reutilizar e suportar múltiplas abas
+let browserInstance = null;
 
-    let browser;
-    try {
-        console.log("[Nuvem] A iniciar o Chromium em segundo plano...");
-        browser = await puppeteer.launch({
+async function getBrowser() {
+    if (!browserInstance || !browserInstance.connected) {
+        console.log("[Nuvem] A iniciar nova instância do Chromium...");
+        browserInstance = await puppeteer.launch({
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
                 '--disable-gpu'
             ]
         });
+    }
+    return browserInstance;
+}
 
-        const page = await browser.newPage();
+app.get('/', (req, res) => {
+    res.status(200).send('Navegador Nuvem Multi-abas operacional!');
+});
+
+app.get('/token', (req, res) => {
+    res.status(200).json({ token_ativo: TOKEN_MESTRE });
+});
+
+// Endpoint genérico para abrir um URL em nova aba, interagir ou recolher dados
+app.post('/navegar', async (req, res) => {
+    const { token, url, acoes } = req.body;
+
+    if (!token || token !== TOKEN_MESTRE) {
+        return res.status(401).json({ sucesso: false, erro: "Token inválido." });
+    }
+
+    if (!url) {
+        return res.status(400).json({ sucesso: false, erro: "URL não fornecido." });
+    }
+
+    let page;
+    try {
+        const browser = await getBrowser();
+        page = await browser.newPage();
         await page.setViewport({ width: 1280, height: 800 });
 
-        console.log("[Nuvem] A navegar para a Sala do Futuro...");
-        await page.goto('https://saladofuturo.educacao.sp.gov.br/', { 
-            waitUntil: 'networkidle2',
-            timeout: 60000 
-        });
+        console.log(`[Nuvem] A abrir nova aba para o URL: ${url}`);
+        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
 
-        console.log("[Nuvem] Página carregada com sucesso na nuvem!");
+        let resultadoExtra = null;
 
-        // Tirar print para auditoria interna
-        await page.screenshot({ path: 'sucesso-nuvem.png' });
+        // Se quiser executar ações específicas passadas no JSON (ex: preencher inputs, clicar, etc.)
+        if (acoes && Array.isArray(acoes)) {
+            for (let acao of acoes) {
+                if (acao.tipo === 'digitar') {
+                    await page.type(acao.seletor, acao.texto);
+                } else if (acao.tipo === 'clicar') {
+                    await page.click(acao.seletor);
+                } else if (acao.tipo === 'esperar') {
+                    await new Promise(r => setTimeout(r, acao.tempo || 2000));
+                }
+            }
+        }
 
-        await browser.close();
-        console.log("[Nuvem] Processo concluído com sucesso.");
+        // Tira um print para registo
+        const screenshotBuffer = await page.screenshot({ encoding: 'base64' });
+        
+        // Recolhe o título da página ou HTML se necessário
+        const titulo = await page.title();
+
+        await page.close(); // Fecha apenas a aba, mantendo o navegador pronto para outras
 
         return res.status(200).json({
             sucesso: true,
-            mensagem: "Navegador executado com sucesso na nuvem!",
-            timestamp: new Date().toISOString()
+            tituloPagina: titulo,
+            screenshotBase64: screenshotBuffer,
+            mensagem: "Aba executada com sucesso!"
         });
 
     } catch (erro) {
-        if (browser) {
-            await browser.close();
+        if (page) {
+            try { await page.close(); } catch(e) {}
         }
-        console.error("[Nuvem Erro]:", erro.message);
-        return res.status(500).json({
-            sucesso: false,
-            erro: erro.message
-        });
+        console.error("[Erro na aba]:", erro.message);
+        return res.status(500).json({ sucesso: false, erro: erro.message });
     }
 });
 
