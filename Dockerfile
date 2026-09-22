@@ -1,6 +1,6 @@
 FROM node:18-slim
 
-# Instala as dependências essenciais do Chromium para Debian/Node-slim
+# Instala todas as dependências de sistema necessárias para o Chrome e Puppeteer
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     libgtk-3-0 \
     libnspr4 \
+    libnss3 \
     libpango-1.0-0 \
     libpangocairo-1.0-0 \
     libstdc++6 \
