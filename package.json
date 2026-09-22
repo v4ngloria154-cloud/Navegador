@@ -1,0 +1,13 @@
+{
+  "name": "navegador-nuvem",
+  "version": "1.0.0",
+  "description": "Robô de navegador em nuvem para automação",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "puppeteer": "^21.0.0"
+  }
+}
